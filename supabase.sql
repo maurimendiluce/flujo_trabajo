@@ -4,7 +4,7 @@
 create table if not exists public.flujo_items (
   id          uuid primary key,
   user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  kind        text not null check (kind in ('task','link','note','config')),
+  kind        text not null check (kind in ('task','link','note','config','category')),
   data        jsonb not null default '{}'::jsonb,
   updated_at  timestamptz not null default now()
 );
