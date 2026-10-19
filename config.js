@@ -5,4 +5,9 @@
 window.APP_CONFIG = {
   SUPABASE_URL: "https://gebxenbehwtmyrajoevr.supabase.co",
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlYnhlbmJlaHd0bXlyYWpvZXZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1NjM0MjAsImV4cCI6MjEwNzEzOTQyMH0.a0viDPJAKtxWbGDwAJXEkLqoMv-1YTWBnR9vjCA79mo",
+
+  // Opcional: Client ID de Google (OAuth, tipo "Aplicación web") para enviar tus tareas a
+  // Google Tasks, que se ven dentro de Google Calendar. Dejalo vacío para desactivarlo.
+  GOOGLE_CLIENT_ID: "293385018984-emcf8do0pk0ger8cg3ln84tc3t85v9rm.apps.googleusercontent.com",
+
 };
