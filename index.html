@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mi flujo de trabajo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login (solo si hay Supabase configurado) -->
+<main id="login" class="login" hidden>
+  <form id="login-form" class="card login-card">
+    <h1>Mi flujo de trabajo</h1>
+    <p class="muted">Ingresá con tu usuario.</p>
+    <label>Email <input type="email" id="login-email" required autocomplete="username"></label>
+    <label>Contraseña <input type="password" id="login-pass" required autocomplete="current-password"></label>
+    <button class="btn primary" type="submit">Entrar</button>
+    <p id="login-error" class="error" role="alert"></p>
+  </form>
+</main>
+
+<div id="app" hidden>
+  <header class="top">
+    <h1>Mi flujo de trabajo</h1>
+    <nav class="tabs" role="tablist" aria-label="Secciones">
+      <a href="#tareas"  role="tab" data-tab="tareas">Tareas</a>
+      <a href="#config"  role="tab" data-tab="config">Configuración</a>
+      <a href="#links"   role="tab" data-tab="links">Links</a>
+      <a href="#notas"   role="tab" data-tab="notas">Notas</a>
+    </nav>
+    <div class="top-actions">
+      <span id="mode-badge" class="badge" title=""></span>
+      <button class="btn ghost small" id="btn-export" title="Descargar copia de seguridad (JSON)">Exportar</button>
+      <button class="btn ghost small" id="btn-import" title="Restaurar desde un JSON">Importar</button>
+      <input type="file" id="file-import" accept="application/json,.json" hidden>
+      <button class="btn ghost small" id="btn-logout" hidden>Salir</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <!-- TAREAS -->
+    <section id="view-tareas" class="view" hidden>
+      <form id="task-form" class="card task-form" autocomplete="off">
+        <input id="task-title" placeholder="Nueva tarea…" required maxlength="200" aria-label="Título de la tarea">
+        <input id="task-due" type="date" aria-label="Fecha">
+        <input id="task-cat" list="cat-list" placeholder="Categoría" maxlength="40" aria-label="Categoría">
+        <datalist id="cat-list"></datalist>
+        <button class="btn primary" type="submit">Agregar</button>
+      </form>
+      <div class="filters">
+        <div class="seg" id="task-status" role="group" aria-label="Estado">
+          <button data-v="pending" class="on">Pendientes</button>
+          <button data-v="done">Hechas</button>
+          <button data-v="all">Todas</button>
+        </div>
+        <div id="task-cats" class="chips" aria-label="Filtrar por categoría"></div>
+      </div>
+      <ul id="task-list" class="list"></ul>
+      <p id="task-empty" class="empty" hidden></p>
+    </section>
+
+    <!-- CONFIGURACIÓN -->
+    <section id="view-config" class="view" hidden>
+      <div class="bar">
+        <h2>Descripción de mi configuración</h2>
+        <div class="bar-actions">
+          <button class="btn small" id="cfg-edit">Editar</button>
+          <button class="btn small primary" id="cfg-save" hidden>Guardar</button>
+          <button class="btn small" id="cfg-cancel" hidden>Cancelar</button>
+          <button class="btn small ghost" id="cfg-reset" hidden title="Volver al texto original del zip">Restaurar original</button>
+        </div>
+      </div>
+      <article id="cfg-view" class="card md"></article>
+      <textarea id="cfg-editor" class="editor card" spellcheck="false" hidden aria-label="Markdown de la configuración"></textarea>
+    </section>
+
+    <!-- LINKS -->
+    <section id="view-links" class="view" hidden>
+      <form id="link-form" class="card link-form" autocomplete="off">
+        <input id="link-title" placeholder="Nombre" required maxlength="120" aria-label="Nombre del link">
+        <input id="link-url" type="text" inputmode="url" placeholder="https://…" required aria-label="URL">
+        <input id="link-cat" list="link-cat-list" placeholder="Categoría" maxlength="40" aria-label="Categoría">
+        <datalist id="link-cat-list"></datalist>
+        <button class="btn primary" type="submit">Agregar</button>
+      </form>
+      <div class="filters">
+        <input id="link-search" type="search" placeholder="Buscar…" aria-label="Buscar links">
+        <div id="link-cats" class="chips"></div>
+      </div>
+      <div id="link-grid" class="grid"></div>
+      <p id="link-empty" class="empty" hidden></p>
+    </section>
+
+    <!-- NOTAS -->
+    <section id="view-notas" class="view" hidden>
+      <div class="notes-layout">
+        <aside class="notes-side card">
+          <div class="notes-side-top">
+            <input id="note-search" type="search" placeholder="Buscar en notas…" aria-label="Buscar notas">
+            <button class="btn primary small" id="note-new">+ Nueva</button>
+          </div>
+          <ul id="note-list" class="note-list"></ul>
+        </aside>
+        <div class="notes-main card" id="note-main" hidden>
+          <div class="notes-head">
+            <input id="note-title" placeholder="Título" maxlength="150" aria-label="Título de la nota">
+            <div class="seg" id="note-mode" role="group" aria-label="Modo">
+              <button data-v="edit">Editar</button>
+              <button data-v="split" class="on">Ambos</button>
+              <button data-v="view">Vista</button>
+            </div>
+            <span id="note-state" class="muted small-text" aria-live="polite"></span>
+            <button class="btn small danger" id="note-del">Borrar</button>
+          </div>
+          <div class="notes-body" data-mode="split">
+            <textarea id="note-body" class="editor" spellcheck="false" placeholder="Escribí en Markdown… (# títulos, **negrita**, listas, `código`, ```bloques```)" aria-label="Contenido de la nota"></textarea>
+            <article id="note-preview" class="md preview"></article>
+          </div>
+        </div>
+        <div class="notes-main card empty-note" id="note-none">
+          <p class="empty">Elegí una nota o creá una nueva.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Diálogo genérico de edición -->
+<dialog id="dlg">
+  <form method="dialog" id="dlg-form" class="dlg-form">
+    <h3 id="dlg-title"></h3>
+    <div id="dlg-fields"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn danger" id="dlg-del">Borrar</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="dlg-cancel">Cancelar</button>
+      <button type="submit" class="btn primary">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
