@@ -79,15 +79,20 @@ let sb = null;
 let items = [];
 const LS_KEY = 'flujo-trabajo-v1';
 
+let lsQueue = Promise.resolve();   // guardados locales en serie: evita que dos guardados superpuestos se pisen
+const lsRun = fn => (lsQueue = lsQueue.then(fn, fn));
+const lsRead = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; } };
 const localAdapter = {
-  async load() { try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; } },
-  async save(it) {
-    const all = await this.load(); const i = all.findIndex(x => x.id === it.id);
-    if (i >= 0) all[i] = it; else all.push(it);
-    localStorage.setItem(LS_KEY, JSON.stringify(all));
+  async load() { return lsRead(); },
+  save(it) {
+    return lsRun(() => {
+      const all = lsRead(); const i = all.findIndex(x => x.id === it.id);
+      if (i >= 0) all[i] = it; else all.push(it);
+      localStorage.setItem(LS_KEY, JSON.stringify(all));
+    });
   },
-  async del(id) { localStorage.setItem(LS_KEY, JSON.stringify((await this.load()).filter(x => x.id !== id))); },
-  async replaceAll(arr) { localStorage.setItem(LS_KEY, JSON.stringify(arr)); },
+  del(id) { return lsRun(() => localStorage.setItem(LS_KEY, JSON.stringify(lsRead().filter(x => x.id !== id)))); },
+  async replaceAll(arr) { return lsRun(() => localStorage.setItem(LS_KEY, JSON.stringify(arr))); },
 };
 const sbAdapter = {
   async load() {
@@ -595,7 +600,8 @@ function renderNoteList() {
   if (noteUI.tag && !tags.has(noteUI.tag)) noteUI.tag = '';
   $('#note-tag-filter').innerHTML = tags.size
     ? `<button class="chip all ${noteUI.tag ? '' : 'on'}" data-t="">Todas</button>` +
-      [...tags].map(([t, n]) => `<button class="chip tag ${noteUI.tag === t ? 'on' : ''}" style="--c:${tagColor(t)}" data-t="${esc(t)}">#${esc(t)} <small>${n}</small></button>`).join('')
+      [...tags].map(([t, n]) => `<button class="chip tag ${noteUI.tag === t ? 'on' : ''}" style="--c:${tagColor(t)}" data-t="${esc(t)}">#${esc(t)} <small>${n}</small></button>`).join('') +
+      `<button class="chip" data-manage="1" title="Administrar etiquetas" aria-label="Administrar etiquetas">⚙</button>`
     : '';
   const q = norm(noteUI.q);
   const list = sortNotes(notes().filter(n =>
@@ -672,11 +678,46 @@ $('#md-tools').addEventListener('click', e => {
 });
 $('#note-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { noteUI.mode = b.dataset.v; applyNoteMode(); } });
 $('#note-search').addEventListener('input', e => { noteUI.q = e.target.value; renderNoteList(); });
-$('#note-tag-filter').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { noteUI.tag = b.dataset.t; renderNoteList(); } });
+$('#note-tag-filter').addEventListener('click', e => { const b = e.target.closest('button'); if (b?.dataset.manage) return openTags(); if (b) { noteUI.tag = b.dataset.t; renderNoteList(); } });
 $('#note-list').addEventListener('click', e => {
   const b = e.target.closest('.note-item'); if (!b) return;
   saveNote.flush(); noteUI.id = b.dataset.id; renderNoteList(); showNote();
 });
+
+// administrador de etiquetas: renombrar / unir / quitar en todas las notas (no cambia la fecha de modificación)
+function openTags() { renderTagManager(); $('#dlg-tags').showModal(); }
+function renderTagManager() {
+  $('#tag-manage').innerHTML = [...allTags()].map(([t, n]) => `
+    <li class="cat-row" data-t="${esc(t)}">
+      <input class="cat-name" value="${esc(t)}" maxlength="30" aria-label="Nombre de la etiqueta">
+      <span class="muted small-text">${n} nota(s)</span>
+      <button class="icon-btn" data-act="del" aria-label="Quitar etiqueta ${esc(t)}" title="Quitar de todas las notas">✕</button>
+    </li>`).join('') || '<li class="empty small-text">Todavía no hay etiquetas.</li>';
+}
+async function mapTag(from, to) {   // to = '' → quitar
+  for (const n of notes().filter(n => tagsOf(n).includes(from))) {
+    const tags = [...new Set(tagsOf(n).map(t => t === from ? to : t).filter(Boolean))];
+    await put('note', { ...n.data, tags }, n.id).catch(() => {});
+  }
+  if (noteUI.tag === from) noteUI.tag = to;
+  renderTagManager(); renderNoteList(); if (curNote()) renderNoteMeta();
+}
+$('#tag-manage').addEventListener('change', async e => {
+  const row = e.target.closest('.cat-row'); if (!row || !e.target.classList.contains('cat-name')) return;
+  const from = row.dataset.t, to = tagNorm(e.target.value);
+  if (!to) { e.target.value = from; toast('El nombre no puede estar vacío'); return; }
+  if (to === from) { e.target.value = from; return; }
+  if (allTags().has(to) && !confirm(`Ya existe #${to}. ¿Unir #${from} con #${to}?`)) { e.target.value = from; return; }
+  await mapTag(from, to);
+});
+$('#tag-manage').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act=del]'); if (!b) return;
+  const t = b.closest('.cat-row').dataset.t, n = allTags().get(t) || 0;
+  if (!confirm(`¿Quitar la etiqueta #${t} de ${n} nota(s)? Las notas no se borran.`)) return;
+  await mapTag(t, '');
+});
+$('#btn-tags').addEventListener('click', openTags);
+$('#tags-close').onclick = () => $('#dlg-tags').close();
 
 // fijar y etiquetas (no cambian la fecha de modificación)
 async function patchNote(patch) {

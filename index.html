@@ -6,7 +6,7 @@
 <title>Mi flujo de trabajo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -111,6 +111,7 @@
             <div id="note-tags" class="chips"></div>
             <input id="note-tag-input" list="tag-list" placeholder="＋ etiqueta" maxlength="60" aria-label="Agregar etiqueta (Enter o coma)">
             <datalist id="tag-list"></datalist>
+            <button type="button" class="btn small" id="btn-tags" title="Administrar etiquetas" aria-label="Administrar etiquetas">⚙</button>
           </div>
           <div class="md-tools" id="md-tools" role="toolbar" aria-label="Formato">
             <button type="button" data-pre="**" data-post="**" data-ph="negrita" title="Negrita"><b>B</b></button>
@@ -148,6 +149,15 @@
 </dialog>
 
 <!-- Diálogo de categorías -->
+<dialog id="dlg-tags">
+  <div class="dlg-form">
+    <h3>Etiquetas</h3>
+    <p class="muted small-text" style="margin:0">Renombrá una etiqueta para cambiarla en todas las notas (si el nombre ya existe, se unen). Con ✕ se quita de todas las notas; las notas no se borran.</p>
+    <ul id="tag-manage" class="cat-manage"></ul>
+    <div class="dlg-actions"><span class="spacer"></span><button type="button" class="btn primary" id="tags-close">Listo</button></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-cats">
   <div class="dlg-form">
     <h3>Categorías</h3>
@@ -171,6 +181,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="config.js"></script>
 <script src="seed.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
