@@ -183,3 +183,43 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   .task-form .cat-pick,.link-form .cat-pick{grid-column:1/-1}
   .task-form{grid-template-columns:1fr 1fr}
 }
+
+/* estado "Entrando…" */
+.boot{min-height:100vh;display:grid;place-content:center;grid-auto-flow:column;gap:10px;align-items:center;color:var(--muted)}
+.spinner,.btn.busy::before{content:"";display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+.btn.busy::before{border-color:color-mix(in srgb,var(--accent-text) 35%,transparent);border-top-color:var(--accent-text);margin-right:8px;vertical-align:-3px}
+.btn:disabled{opacity:.75;cursor:default}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner,.btn.busy::before{animation-duration:2.4s}}
+
+/* tareas: detalle (descripción + subtareas) */
+.task .icon-btn[data-act=edit]{margin-left:0}
+.t-progress{font-size:.78rem;color:var(--muted);white-space:nowrap}
+.t-progress.full{color:var(--ok);font-weight:600}
+.t-hasdesc{color:var(--muted);font-size:.95rem}
+.t-detail{flex:1 1 100%;margin:2px 0 4px 31px;padding:6px 0 6px 14px;border-left:2px solid var(--border);display:flex;flex-direction:column;gap:8px;cursor:default;min-width:0}
+.t-desc.md{padding:0}
+.t-desc.md > :first-child{margin-top:0} .t-desc.md > :last-child{margin-bottom:0}
+.subs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.sub{display:flex;align-items:center;gap:8px}
+.sub input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);flex:none;cursor:pointer}
+.sub-text,.sub-add{flex:1;min-width:0;padding:4px 8px;border:1px solid transparent;border-radius:6px;background:transparent}
+.sub-text:hover{border-color:var(--border)}
+.sub-text:focus,.sub-add:focus{border-color:var(--accent);background:var(--surface)}
+.sub.done .sub-text{text-decoration:line-through;color:var(--muted)}
+.sub-add{flex:none;width:100%;border:1px dashed var(--border)}
+.sub .icon-btn,.t-detail .icon-btn{margin-left:0}
+.dlg-form textarea{width:100%;min-height:120px;resize:vertical;font:inherit;line-height:1.5;color:var(--text)}
+
+/* notas: etiquetas, fijadas, plantillas */
+.notes-side select{width:100%}
+.notes-side .chips{gap:4px}
+.note-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.note-meta input{width:140px;padding:5px 8px;font-size:.88rem}
+#note-pin.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.chip.tag small{opacity:.7}
+.chip-x{font:inherit;border:0;background:transparent;color:inherit;cursor:pointer;padding:0 3px;margin-left:1px;border-radius:50%;line-height:1;opacity:.7}
+.chip-x:hover{opacity:1}
+.n-tags{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:3px}
+.n-tags .chip{font-size:.7rem;padding:0 7px}
+@media (max-width:820px){ .t-detail{margin-left:4px} }

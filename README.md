@@ -1,17 +1,16 @@
 # Mi flujo de trabajo
 
-App web de una sola página (HTML + JS, sin build) con cuatro solapas:
+App web de una sola página (HTML + JS, sin build) con tres solapas:
 
-- **Tareas**: título, fecha y categoría (menú desplegable); filtros por estado y categoría; vencidas y de hoy resaltadas. Opcional: se envían a Google Tasks y se ven en Google Calendar.
+- **Tareas**: título, fecha y categoría (menú desplegable); filtros por estado y categoría; vencidas y de hoy resaltadas. Cada tarea puede tener **descripción** (Markdown y LaTeX) y **subtareas** con progreso (▸ para abrir el detalle). Opcional: se envían a Google Tasks y se ven en Google Calendar.
 - **Configuración**: tu `mi_configuracion/README.md` renderizado como Markdown (con LaTeX y botón *Copiar* en cada bloque de código). Se puede editar y guardar.
-- **Links**: nombre, URL y categoría; click abre en pestaña nueva; búsqueda y filtro.
-- **Notas**: editor Markdown con vista previa en vivo (Editar / Ambos / Vista), **LaTeX**, barra de formato y autoguardado.
+- **Notas**: editor Markdown con vista previa en vivo (Editar / Ambos / Vista), **LaTeX**, barra de formato y autoguardado. Con **etiquetas** (filtro en la barra lateral), notas **fijadas** (quedan arriba) y **plantillas** (acta de reunión, clase, idea de investigación, resumen de paper).
 
 Además: **Exportar / Importar** (copia de seguridad en JSON), modo claro/oscuro automático y diseño adaptado a móvil.
 
 ## Categorías con color
 
-Las categorías se crean desde el menú desplegable ("＋ Nueva categoría…") o con el botón ⚙ al lado. Ahí mismo elegís el color de cada una, las renombrás o las borrás (las tareas y links quedan sin categoría). Son compartidas por Tareas y Links.
+Las categorías se crean desde el menú desplegable ("＋ Nueva categoría…") o con el botón ⚙ al lado. Ahí mismo elegís el color de cada una, las renombrás o las borrás (las tareas quedan sin categoría).
 
 Si venías de la versión anterior, las categorías de texto se convierten solas en categorías con color la primera vez que abrís la app.
 
@@ -57,7 +56,7 @@ Podés usar un proyecto de Supabase que ya tengas: la app solo usa la tabla `flu
 
 Las tareas se envían a **Google Tasks**, que Google Calendar muestra como "tareas" en el día de su fecha (también aparecen en la app Tasks del celular). Es una sincronización en un solo sentido: app → Google.
 
-Qué se envía: título, fecha (si tiene), estado (hecha/pendiente) y la categoría en las notas. Al crear, editar, completar, reabrir o borrar una tarea en la app, se refleja en Google. Las tareas sin fecha van a Google Tasks pero no aparecen en el calendario.
+Qué se envía: título, fecha (si tiene), estado (hecha/pendiente) y, en las notas de la tarea de Google, la categoría, la descripción y las subtareas (☐ / ☑). Al crear, editar, completar, reabrir o borrar una tarea en la app, se refleja en Google. Las tareas sin fecha van a Google Tasks pero no aparecen en el calendario.
 
 ### Configuración (una sola vez, ~10 minutos)
 

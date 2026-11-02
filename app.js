@@ -11,7 +11,13 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const todayStr = () => ymd(new Date());
-const debounce = (fn, ms) => { let t; const f = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; f.flush = () => { clearTimeout(t); fn(); }; return f; };
+const debounce = (fn, ms) => {
+  let t = null;
+  const f = (...a) => { clearTimeout(t); t = setTimeout(() => { t = null; fn(...a); }, ms); };
+  f.flush = () => { if (t !== null) { clearTimeout(t); t = null; fn(); } };   // solo si hay un guardado pendiente
+  return f;
+};
+const hue = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 
 let toastTimer;
 function toast(msg) {
@@ -68,7 +74,7 @@ function renderMd(md, target) {
 // Cada elemento: { id, kind: 'task'|'link'|'note'|'config'|'category', data: {...} }
 const KINDS = ['task', 'link', 'note', 'config', 'category'];
 const cfg = window.APP_CONFIG || {};
-const useSB = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase);
+const useSB = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY);   // modo nube configurado
 let sb = null;
 let items = [];
 const LS_KEY = 'flujo-trabajo-v1';
@@ -137,10 +143,8 @@ const catOptions = sel => `<option value="">Sin categoría</option>` +
 const dupName = (name, exceptId) => cats().some(x => x.id !== exceptId && x.data.name.toLowerCase() === name.toLowerCase());
 
 function fillCatSelects() {
-  for (const id of ['task-cat', 'link-cat']) {
-    const s = $('#' + id); const v = s.value;
-    s.innerHTML = catOptions(''); s.value = catById(v) ? v : '';
-  }
+  const s = $('#task-cat'); const v = s.value;
+  s.innerHTML = catOptions(''); s.value = catById(v) ? v : '';
 }
 
 // Migración: las categorías antiguas eran texto (data.cat); ahora son elementos con color (data.catId)
@@ -205,14 +209,11 @@ $('#cat-add').addEventListener('submit', async e => {
 $('#cats-close').onclick = () => $('#dlg-cats').close();
 $('#dlg-cats').addEventListener('close', () => { fillCatSelects(); const f = onCatsClose; onCatsClose = null; if (f) f(lastNewCat); });
 $('#btn-cats-task').onclick = () => openCats();
-$('#btn-cats-link').onclick = () => openCats();
-for (const id of ['task-cat', 'link-cat']) {
-  $('#' + id).addEventListener('change', e => {
-    if (e.target.value !== '__new') return;
-    e.target.value = '';
-    openCats(newId => { if (newId) e.target.value = newId; });
-  });
-}
+$('#task-cat').addEventListener('change', e => {
+  if (e.target.value !== '__new') return;
+  e.target.value = '';
+  openCats(newId => { if (newId) e.target.value = newId; });
+});
 
 /* ---------- diálogo genérico ---------- */
 const dlg = $('#dlg');
@@ -220,6 +221,8 @@ function openEditor({ title, fields, onSave, onDelete }) {
   $('#dlg-title').textContent = title;
   $('#dlg-fields').innerHTML = fields.map(f => f.type === 'select'
     ? `<label>${esc(f.label)}<select name="${f.key}">${f.options.map(o => `<option value="${esc(o.v)}"${o.v === f.value ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></label>`
+    : f.type === 'textarea'
+    ? `<label>${esc(f.label)}<textarea name="${f.key}" rows="6" maxlength="${f.max || 4000}">${esc(f.value ?? '')}</textarea></label>`
     : `<label>${esc(f.label)}
         <input name="${f.key}" type="${f.type || 'text'}" value="${esc(f.value ?? '')}" ${f.required ? 'required' : ''} maxlength="${f.max || 200}">
       </label>`).join('');
@@ -274,10 +277,16 @@ async function gfetch(method, url, body) {
   if (!r.ok) { const e = new Error(`error ${r.status}`); e.status = r.status; throw e; }
   return r.json();
 }
+function gNotes(t) {
+  const parts = [];
+  const c = catById(t.catId); if (c) parts.push(`Categoría: ${c.data.name}`);
+  if (t.desc?.trim()) parts.push(t.desc.trim());
+  if (t.subs?.length) parts.push('Subtareas:\n' + t.subs.map(s => `${s.done ? '☑' : '☐'} ${s.text}`).join('\n'));
+  return parts.join('\n\n').slice(0, 8000);
+}
 function gPayload(t, patch) {
-  const c = catById(t.catId);
   const p = { title: t.title, status: t.done ? 'completed' : 'needsAction' };
-  const notes = c ? `Categoría: ${c.data.name}` : '';
+  const notes = gNotes(t);
   if (notes || patch) p.notes = notes;
   if (t.due) p.due = `${t.due}T00:00:00.000Z`; else if (patch) p.due = null;
   if (patch && !t.done) p.completed = null;
@@ -325,7 +334,7 @@ $('#btn-google').onclick = async () => {
 $('#btn-gsync').onclick = () => gQueue(gSyncAll);
 
 /* ---------- TAREAS ---------- */
-const taskUI = { status: 'pending', cat: '' };
+const taskUI = { status: 'pending', cat: '', open: new Set() };
 const tasks = () => ofKind('task');
 
 function dueInfo(due, done) {
@@ -339,6 +348,20 @@ function dueInfo(due, done) {
   if (diff === 0) return { text: 'Hoy', cls: 'today' };
   if (diff === 1) return { text: 'Mañana', cls: '' };
   return { text: fmt, cls: '' };
+}
+
+const subStats = t => { const s = t.subs || []; return { n: s.length, d: s.filter(x => x.done).length }; };
+function detailHtml(t) {
+  return `<div class="t-detail">
+    <div class="t-desc md">${t.desc ? '' : '<span class="muted small-text">Sin descripción. Tocá ✎ para agregar una (admite Markdown y LaTeX).</span>'}</div>
+    <ul class="subs">${(t.subs || []).map(s => `
+      <li class="sub ${s.done ? 'done' : ''}" data-sid="${s.id}">
+        <input type="checkbox" class="sub-check" ${s.done ? 'checked' : ''} aria-label="Subtarea hecha">
+        <input class="sub-text" value="${esc(s.text)}" maxlength="200" aria-label="Texto de la subtarea">
+        <button class="icon-btn" data-act="sub-del" aria-label="Quitar subtarea" title="Quitar">✕</button>
+      </li>`).join('')}</ul>
+    <input class="sub-add" placeholder="＋ Agregar subtarea (Enter)" maxlength="200" aria-label="Agregar subtarea">
+  </div>`;
 }
 
 const chipFilters = (cur) => cats().length
@@ -364,15 +387,23 @@ function renderTasks() {
   });
 
   $('#task-list').innerHTML = list.map(t => {
-    const d = t.data, di = dueInfo(d.due, d.done);
-    return `<li class="task ${d.done ? 'done' : ''}" data-id="${t.id}">
+    const d = t.data, di = dueInfo(d.due, d.done), st = subStats(d), open = taskUI.open.has(t.id);
+    return `<li class="task ${d.done ? 'done' : ''} ${open ? 'open' : ''}" data-id="${t.id}">
       <input type="checkbox" ${d.done ? 'checked' : ''} aria-label="Marcar como hecha">
       <span class="t-title">${esc(d.title)}</span>
       ${catChip(d.catId)}
+      ${st.n ? `<span class="t-progress${st.d === st.n ? ' full' : ''}" title="Subtareas hechas">☑ ${st.d}/${st.n}</span>` : ''}
+      ${d.desc ? '<span class="t-hasdesc" title="Tiene descripción">≡</span>' : ''}
       <span class="due ${di.cls}">${esc(di.text)}</span>
+      <button class="icon-btn" data-act="toggle" aria-expanded="${open}" aria-label="Detalle: descripción y subtareas" title="Detalle: descripción y subtareas">${open ? '▾' : '▸'}</button>
       <button class="icon-btn" data-act="edit" aria-label="Editar tarea" title="Editar">✎</button>
+      ${open ? detailHtml(d) : ''}
     </li>`;
   }).join('');
+  $$('#task-list .task.open').forEach(li => {
+    const it = items.find(x => x.id === li.dataset.id);
+    if (it?.data.desc) renderMd(it.data.desc, $('.t-desc', li));
+  });
   const empty = $('#task-empty');
   empty.hidden = list.length > 0;
   empty.textContent = tasks().length === 0 ? 'Todavía no hay tareas. Agregá la primera arriba.'
@@ -391,30 +422,65 @@ $('#task-form').addEventListener('submit', async e => {
 });
 $('#task-status').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { taskUI.status = b.dataset.v; renderTasks(); } });
 $('#task-cats').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { taskUI.cat = b.dataset.c; renderTasks(); } });
+async function saveSubs(it, subs) {
+  try { await put('task', { ...it.data, subs }, it.id); } catch { /* put() ya avisó */ }
+  renderTasks(); gSync(it.id);
+}
 $('#task-list').addEventListener('click', async e => {
   const li = e.target.closest('.task'); if (!li) return;
   const it = items.find(x => x.id === li.dataset.id); if (!it) return;
+  if (e.target.closest('.t-detail')) {   // panel de detalle: solo el botón de quitar subtarea
+    const del = e.target.closest('[data-act=sub-del]');
+    if (del) await saveSubs(it, (it.data.subs || []).filter(s => s.id !== del.closest('.sub').dataset.sid));
+    return;
+  }
   if (e.target.matches('input[type=checkbox]')) {
     try {
       await put('task', { ...it.data, done: e.target.checked, doneAt: e.target.checked ? new Date().toISOString() : null }, it.id);
       renderTasks(); gSync(it.id);
     } catch { renderTasks(); }
-  } else if (e.target.closest('[data-act=edit]') || e.target.closest('.t-title')) {
+  } else if (e.target.closest('[data-act=toggle]') || e.target.closest('.t-title')) {
+    taskUI.open.has(it.id) ? taskUI.open.delete(it.id) : taskUI.open.add(it.id);
+    renderTasks();
+  } else if (e.target.closest('[data-act=edit]')) {
     openEditor({
       title: 'Editar tarea',
       fields: [
         { key: 'title', label: 'Tarea', value: it.data.title, required: true },
         { key: 'due', label: 'Fecha', type: 'date', value: it.data.due },
         { key: 'catId', label: 'Categoría', type: 'select', value: it.data.catId || '', options: catFieldOptions() },
+        { key: 'desc', label: 'Descripción (Markdown y LaTeX)', type: 'textarea', value: it.data.desc || '' },
       ],
       onSave: async v => {
         if (!v.title.trim()) return false;
-        try { await put('task', { ...it.data, title: v.title.trim(), due: v.due, catId: v.catId }, it.id); } catch { return false; }
+        try { await put('task', { ...it.data, title: v.title.trim(), due: v.due, catId: v.catId, desc: (v.desc || '').trim() }, it.id); } catch { return false; }
         renderTasks(); gSync(it.id);
       },
-      onDelete: async () => { const g = it.data.gtask; await remove(it.id); renderTasks(); gDelete(g); },
+      onDelete: async () => { const g = it.data.gtask; taskUI.open.delete(it.id); await remove(it.id); renderTasks(); gDelete(g); },
     });
   }
+});
+// subtareas: tildar / editar el texto (change) y agregar con Enter
+$('#task-list').addEventListener('change', async e => {
+  const li = e.target.closest('.task'), sub = e.target.closest('.sub'); if (!li || !sub) return;
+  const it = items.find(x => x.id === li.dataset.id); if (!it) return;
+  const sid = sub.dataset.sid; let subs = [...(it.data.subs || [])];
+  if (e.target.classList.contains('sub-check')) subs = subs.map(s => s.id === sid ? { ...s, done: e.target.checked } : s);
+  else if (e.target.classList.contains('sub-text')) {
+    const text = e.target.value.trim();
+    subs = text ? subs.map(s => s.id === sid ? { ...s, text } : s) : subs.filter(s => s.id !== sid);   // vacío = quitar
+  } else return;
+  await saveSubs(it, subs);
+});
+$('#task-list').addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  if (e.target.classList.contains('sub-text')) { e.preventDefault(); e.target.blur(); return; }
+  if (!e.target.classList.contains('sub-add')) return;
+  e.preventDefault();
+  const text = e.target.value.trim(); if (!text) return;
+  const li = e.target.closest('.task'), it = items.find(x => x.id === li?.dataset.id); if (!it) return;
+  await saveSubs(it, [...(it.data.subs || []), { id: uid(), text, done: false }]);
+  $(`#task-list .task[data-id="${it.id}"] .sub-add`)?.focus();
 });
 
 /* ---------- CONFIGURACIÓN ---------- */
@@ -435,92 +501,133 @@ $('#cfg-save').onclick = async () => {
   setCfgEditing(false); renderConfig(); toast('Configuración guardada');
 };
 
-/* ---------- LINKS ---------- */
-const linkUI = { cat: '', q: '' };
-function normUrl(raw) {
-  let u = String(raw).trim(); if (!u) return null;
-  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = 'https://' + u;
-  try { const x = new URL(u); return ['http:', 'https:', 'mailto:'].includes(x.protocol) ? x.href : null; } catch { return null; }
-}
-const hostOf = u => { try { return new URL(u).host.replace(/^www\./, '') || u; } catch { return u; } };
-
-function renderLinks() {
-  if (linkUI.cat && !catById(linkUI.cat)) linkUI.cat = '';
-  $('#link-cats').innerHTML = chipFilters(linkUI.cat);
-  const q = norm(linkUI.q);
-  const list = ofKind('link').filter(l =>
-    (!linkUI.cat || l.data.catId === linkUI.cat) &&
-    (!q || norm(l.data.title + ' ' + l.data.url + ' ' + (catById(l.data.catId)?.data.name || '')).includes(q))
-  ).sort((a, b) => a.data.title.localeCompare(b.data.title, 'es'));
-  $('#link-grid').innerHTML = list.map(l => `
-    <div class="card link-card" data-id="${l.id}">
-      <a class="l-main" href="${esc(l.data.url)}" target="_blank" rel="noopener noreferrer">
-        <span class="l-title">${esc(l.data.title)}</span>
-        <span class="l-host">${esc(hostOf(l.data.url))}</span>
-      </a>
-      <div class="l-foot">${catChip(l.data.catId) || '<span></span>'}
-        <button class="icon-btn" data-act="edit" aria-label="Editar link" title="Editar">✎</button></div>
-    </div>`).join('');
-  const empty = $('#link-empty');
-  empty.hidden = list.length > 0;
-  empty.textContent = ofKind('link').length === 0 ? 'Todavía no hay links. Agregá el primero arriba.' : 'No hay links con este filtro.';
-}
-$('#link-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const url = normUrl($('#link-url').value);
-  if (!url) { toast('La URL no es válida'); return; }
-  const catId = $('#link-cat').value === '__new' ? '' : $('#link-cat').value;
-  try {
-    await put('link', { title: $('#link-title').value.trim(), url, catId });
-    $('#link-title').value = ''; $('#link-url').value = ''; $('#link-title').focus();
-    renderLinks();
-  } catch { /* put() ya avisó */ }
-});
-$('#link-search').addEventListener('input', e => { linkUI.q = e.target.value; renderLinks(); });
-$('#link-cats').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { linkUI.cat = b.dataset.c; renderLinks(); } });
-$('#link-grid').addEventListener('click', e => {
-  const btn = e.target.closest('[data-act=edit]'); if (!btn) return;
-  const it = items.find(x => x.id === btn.closest('.link-card').dataset.id); if (!it) return;
-  openEditor({
-    title: 'Editar link',
-    fields: [
-      { key: 'title', label: 'Nombre', value: it.data.title, required: true },
-      { key: 'url', label: 'URL', value: it.data.url, required: true, max: 2000 },
-      { key: 'catId', label: 'Categoría', type: 'select', value: it.data.catId || '', options: catFieldOptions() },
-    ],
-    onSave: async v => {
-      const url = normUrl(v.url); if (!url) { toast('La URL no es válida'); return false; }
-      try { await put('link', { ...it.data, title: v.title.trim(), url, catId: v.catId }, it.id); } catch { return false; }
-      renderLinks();
-    },
-    onDelete: async () => { await remove(it.id); renderLinks(); },
-  });
-});
-
 /* ---------- NOTAS ---------- */
-const noteUI = { id: null, mode: 'split', q: '' };
+const noteUI = { id: null, mode: 'split', q: '', tag: '' };
 const notes = () => ofKind('note');
+const curNote = () => items.find(x => x.id === noteUI.id && x.kind === 'note');
 const noteTitle = n => (n.data.title || '').trim() || 'Sin título';
+const tagsOf = n => n.data.tags || [];
+const tagColor = t => `hsl(${hue(t)} 60% 45%)`;
+const tagNorm = s => s.trim().replace(/^#+/, '').replace(/\s+/g, '-').toLocaleLowerCase('es').slice(0, 30);
+const tagChip = (t, extra = '') => `<span class="chip tag" style="--c:${tagColor(t)}">#${esc(t)}${extra}</span>`;
+// fijadas primero; después, la más recientemente modificada
+const sortNotes = list => [...list].sort((a, b) => (!!b.data.pinned - !!a.data.pinned) || (b.data.updated || '').localeCompare(a.data.updated || ''));
+function allTags() {
+  const m = new Map();
+  notes().forEach(n => tagsOf(n).forEach(t => m.set(t, (m.get(t) || 0) + 1)));
+  return new Map([...m].sort((x, y) => x[0].localeCompare(y[0], 'es')));
+}
+
+// plantillas (las fórmulas usan LaTeX)
+const todayEs = () => new Date().toLocaleDateString('es-AR');
+const TEMPLATES = {
+  reunion: { label: 'Acta de reunión', tags: ['reunión'], title: d => `Reunión ${d}`, body: d => String.raw`# Reunión — ${d}
+
+**Fecha:** ${d}
+**Participantes:**
+
+## Temas
+-
+
+## Acuerdos
+-
+
+## Pendientes
+- [ ]
+` },
+  clase: { label: 'Clase', tags: ['docencia'], title: d => `Clase ${d}`, body: d => String.raw`# Clase — ${d}
+
+**Materia / tema:**
+
+## Objetivos
+-
+
+## Desarrollo
+Se busca $u_h \in V_h$ tal que $a(u_h, v_h) = \ell(v_h)\ \forall v_h \in V_h$.
+
+## Ejercicios
+1.
+
+## Para la próxima clase
+-
+` },
+  idea: { label: 'Idea de investigación', tags: ['investigación'], title: () => 'Idea: ', body: () => String.raw`# Idea
+
+## Pregunta
+¿?
+
+## Contexto
+-
+
+## Planteo
+$$
+\text{ecuación o esquema numérico}
+$$
+
+## Referencias
+-
+
+## Próximos pasos
+- [ ]
+` },
+  paper: { label: 'Resumen de paper', tags: ['lectura'], title: () => 'Paper: ', body: () => String.raw`# Paper
+
+**Referencia:**
+**Link:**
+
+## Problema
+
+## Método
+
+## Resultados
+
+## Comentarios
+
+## Para usar / citar
+-
+` },
+};
+$('#note-tpl').innerHTML = '<option value="">＋ Nueva desde plantilla…</option>' +
+  Object.entries(TEMPLATES).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join('');
 
 function renderNoteList() {
+  const tags = allTags();
+  if (noteUI.tag && !tags.has(noteUI.tag)) noteUI.tag = '';
+  $('#note-tag-filter').innerHTML = tags.size
+    ? `<button class="chip all ${noteUI.tag ? '' : 'on'}" data-t="">Todas</button>` +
+      [...tags].map(([t, n]) => `<button class="chip tag ${noteUI.tag === t ? 'on' : ''}" style="--c:${tagColor(t)}" data-t="${esc(t)}">#${esc(t)} <small>${n}</small></button>`).join('')
+    : '';
   const q = norm(noteUI.q);
-  const list = notes().filter(n => !q || norm(n.data.title + ' ' + n.data.body).includes(q))
-    .sort((a, b) => (b.data.updated || '').localeCompare(a.data.updated || ''));
-  $('#note-list').innerHTML = list.map(n => `
-    <li><button class="note-item ${n.id === noteUI.id ? 'on' : ''}" data-id="${n.id}">
-      <span class="n-title">${esc(noteTitle(n))}</span>
+  const list = sortNotes(notes().filter(n =>
+    (!noteUI.tag || tagsOf(n).includes(noteUI.tag)) &&
+    (!q || norm(n.data.title + ' ' + n.data.body + ' ' + tagsOf(n).join(' ')).includes(q))));
+  $('#note-list').innerHTML = list.map(n => {
+    const tg = tagsOf(n);
+    return `<li><button class="note-item ${n.id === noteUI.id ? 'on' : ''}" data-id="${n.id}">
+      <span class="n-title">${n.data.pinned ? '📌 ' : ''}${esc(noteTitle(n))}</span>
       <span class="n-snip">${esc((n.data.body || '').replace(/[#*`>\-\n]+/g, ' ').trim().slice(0, 70)) || 'Vacía'}</span>
-    </button></li>`).join('') || `<li class="empty small-text">${notes().length ? 'Sin resultados' : 'Aún no hay notas'}</li>`;
+      ${tg.length ? `<span class="n-tags">${tg.slice(0, 3).map(t => tagChip(t)).join('')}${tg.length > 3 ? `<small class="muted">+${tg.length - 3}</small>` : ''}</span>` : ''}
+    </button></li>`;
+  }).join('') || `<li class="empty small-text">${notes().length ? 'Sin resultados' : 'Aún no hay notas'}</li>`;
+}
+function renderNoteMeta() {
+  const n = curNote(); if (!n) return;
+  const pin = $('#note-pin');
+  pin.textContent = n.data.pinned ? '📌 Fijada' : '📌 Fijar';
+  pin.setAttribute('aria-pressed', String(!!n.data.pinned)); pin.classList.toggle('on', !!n.data.pinned);
+  $('#note-tags').innerHTML = tagsOf(n).map(t =>
+    tagChip(t, ` <button type="button" class="chip-x" data-t="${esc(t)}" aria-label="Quitar etiqueta ${esc(t)}">×</button>`)).join('');
+  $('#tag-list').innerHTML = [...allTags().keys()].filter(t => !tagsOf(n).includes(t)).map(t => `<option value="${esc(t)}">`).join('');
 }
 function showNote() {
-  const n = items.find(x => x.id === noteUI.id && x.kind === 'note');
+  const n = curNote();
   $('#note-main').hidden = !n; $('#note-none').hidden = !!n;
   if (!n) return;
   $('#note-title').value = n.data.title || '';
   $('#note-body').value = n.data.body || '';
   $('#note-state').textContent = '';
   renderMd(n.data.body || '', $('#note-preview'));
-  applyNoteMode();
+  renderNoteMeta(); applyNoteMode();
 }
 function applyNoteMode() {
   $('.notes-body').dataset.mode = noteUI.mode;
@@ -529,11 +636,11 @@ function applyNoteMode() {
 }
 function renderNotes() {
   if (noteUI.id && !items.some(x => x.id === noteUI.id)) noteUI.id = null;
-  if (!noteUI.id && notes().length) noteUI.id = notes().sort((a, b) => (b.data.updated || '').localeCompare(a.data.updated || ''))[0].id;
+  if (!noteUI.id && notes().length) noteUI.id = sortNotes(notes())[0].id;
   renderNoteList(); showNote();
 }
 const saveNote = debounce(async () => {
-  const n = items.find(x => x.id === noteUI.id); if (!n) return;
+  const n = curNote(); if (!n) return;
   const data = { ...n.data, title: $('#note-title').value, body: $('#note-body').value, updated: new Date().toISOString() };
   try { await put('note', data, n.id); $('#note-state').textContent = 'Guardado'; renderNoteList(); }
   catch { $('#note-state').textContent = 'Error al guardar'; }
@@ -542,7 +649,7 @@ const onNoteInput = () => {
   $('#note-state').textContent = 'Guardando…';
   renderMd($('#note-body').value, $('#note-preview'));
   // actualiza en memoria al instante para no perder cambios al cambiar de nota
-  const n = items.find(x => x.id === noteUI.id);
+  const n = curNote();
   if (n) n.data = { ...n.data, title: $('#note-title').value, body: $('#note-body').value };
   saveNote();
 };
@@ -565,27 +672,57 @@ $('#md-tools').addEventListener('click', e => {
 });
 $('#note-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { noteUI.mode = b.dataset.v; applyNoteMode(); } });
 $('#note-search').addEventListener('input', e => { noteUI.q = e.target.value; renderNoteList(); });
+$('#note-tag-filter').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { noteUI.tag = b.dataset.t; renderNoteList(); } });
 $('#note-list').addEventListener('click', e => {
   const b = e.target.closest('.note-item'); if (!b) return;
   saveNote.flush(); noteUI.id = b.dataset.id; renderNoteList(); showNote();
 });
-$('#note-new').addEventListener('click', async () => {
+
+// fijar y etiquetas (no cambian la fecha de modificación)
+async function patchNote(patch) {
+  const n = curNote(); if (!n) return;
+  try { await put('note', { ...n.data, ...patch }, n.id); } catch { return; }
+  renderNoteList(); renderNoteMeta();
+}
+$('#note-pin').addEventListener('click', () => { const n = curNote(); if (n) patchNote({ pinned: !n.data.pinned }); });
+function addTags(raw) {
+  const n = curNote(); if (!n) return;
+  const have = new Set(tagsOf(n));
+  raw.split(',').map(tagNorm).filter(Boolean).forEach(t => have.add(t));
+  patchNote({ tags: [...have] });
+}
+$('#note-tag-input').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ',') return;
+  e.preventDefault(); const v = e.target.value; e.target.value = ''; if (v.trim()) addTags(v);
+});
+$('#note-tag-input').addEventListener('change', e => { const v = e.target.value; e.target.value = ''; if (v.trim()) addTags(v); });
+$('#note-tags').addEventListener('click', e => {
+  const b = e.target.closest('.chip-x'); const n = curNote(); if (!b || !n) return;
+  patchNote({ tags: tagsOf(n).filter(t => t !== b.dataset.t) });
+});
+
+async function newNote(extra = {}) {
   saveNote.flush();
   try {
-    const it = await put('note', { title: '', body: '', updated: new Date().toISOString() });
-    noteUI.q = ''; $('#note-search').value = ''; noteUI.id = it.id; noteUI.mode = 'split';
+    const it = await put('note', { title: '', body: '', tags: [], pinned: false, ...extra, updated: new Date().toISOString() });
+    noteUI.q = ''; noteUI.tag = ''; $('#note-search').value = ''; noteUI.id = it.id; noteUI.mode = 'split';
     renderNoteList(); showNote(); $('#note-title').focus();
   } catch { /* put() ya avisó */ }
+}
+$('#note-new').addEventListener('click', () => newNote());
+$('#note-tpl').addEventListener('change', e => {
+  const t = TEMPLATES[e.target.value]; e.target.value = ''; if (!t) return;
+  newNote({ title: t.title(todayEs()), body: t.body(todayEs()), tags: [...t.tags] });
 });
 $('#note-del').addEventListener('click', async () => {
-  const n = items.find(x => x.id === noteUI.id); if (!n) return;
+  const n = curNote(); if (!n) return;
   if (!confirm(`¿Borrar la nota "${noteTitle(n)}"?`)) return;
   await remove(n.id); noteUI.id = null; renderNotes();
 });
 window.addEventListener('beforeunload', () => saveNote.flush());
 
 /* ---------- navegación ---------- */
-const TABS = { tareas: renderTasks, config: renderConfig, links: renderLinks, notas: renderNotes };
+const TABS = { tareas: renderTasks, config: renderConfig, notas: renderNotes };
 function route() {
   let tab = location.hash.replace('#', ''); if (!TABS[tab]) tab = 'tareas';
   saveNote.flush();
@@ -615,31 +752,81 @@ $('#file-import').onchange = async e => {
   } catch (err) { toast('No se pudo importar: ' + err.message); }
 };
 
-/* ---------- arranque ---------- */
+/* ---------- arranque y login ---------- */
+const LOGIN_TIMEOUT_MS = 15000;
+const withTimeout = (p, ms) => Promise.race([
+  p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timeout'), { code: 'timeout' })), ms)),
+]);
+const MSG_LOAD_FAIL = 'No se pudieron cargar tus datos. Revisá tu conexión a internet e intentá de nuevo.';
+
+function loginMessage(err) {
+  const m = String(err?.message || '');
+  if (err?.code === 'timeout') return 'La conexión tardó demasiado. Intentá de nuevo.';
+  if (err?.name === 'AuthRetryableFetchError' || err?.status === 0 || /failed to fetch|network|load failed/i.test(m))
+    return 'No se pudo conectar con el servidor. Revisá tu conexión a internet e intentá de nuevo.';
+  if (err?.code === 'invalid_credentials' || (err?.status === 400 && /invalid login/i.test(m)))
+    return 'Email o contraseña incorrectos.';
+  if (err?.status === 429) return 'Demasiados intentos. Esperá un momento e intentá de nuevo.';
+  return 'No se pudo ingresar: ' + m;
+}
+function setLogin(busy, msg = '') {
+  const btn = $('#login-btn');
+  btn.disabled = busy; btn.classList.toggle('busy', busy);
+  btn.textContent = busy ? 'Entrando…' : 'Entrar';
+  $('#login-email').disabled = busy; $('#login-pass').disabled = busy;
+  $('#login-error').textContent = msg;
+}
+async function onLogin(e) {
+  e.preventDefault();
+  if (navigator.onLine === false) { setLogin(false, 'Sin conexión a internet. Conectate e intentá de nuevo.'); return; }
+  setLogin(true);
+  let error = null;
+  try {
+    ({ error } = await withTimeout(
+      sb.auth.signInWithPassword({ email: $('#login-email').value.trim(), password: $('#login-pass').value }),
+      LOGIN_TIMEOUT_MS));
+  } catch (err) { error = err; }
+  if (error) { setLogin(false, loginMessage(error)); $('#login-pass').focus(); return; }
+  if (!(await startApp())) setLogin(false, MSG_LOAD_FAIL);
+}
+
 async function startApp() {
-  $('#login').hidden = true; $('#app').hidden = false;
+  try { items = await withTimeout(store().load(), 20000); }
+  catch (e) {
+    console.error(e);
+    if (useSB) return false;   // en modo nube no se muestra una app vacía si falló la carga
+    toast('Error al cargar datos: ' + (e.message || e)); items = [];
+  }
+  $('#boot').hidden = true; $('#login').hidden = true; $('#app').hidden = false;
   $('#mode-badge').textContent = useSB ? 'Nube' : 'Local';
   $('#mode-badge').title = useSB ? 'Datos guardados en Supabase' : 'Datos guardados solo en este navegador. Usá Exportar para hacer copias.';
   $('#btn-logout').hidden = !useSB;
-  try { items = await store().load(); } catch (e) { toast('Error al cargar datos: ' + (e.message || e)); items = []; }
   await migrateLegacyCats();
   updateGoogleUI();
   route();
+  return true;
 }
 
 async function init() {
   if (!useSB) { await startApp(); return; }
+  if (!window.supabase) {   // la librería de Supabase no cargó (sin conexión o bloqueada)
+    $('#login').hidden = false;
+    $$('#login-form label').forEach(l => l.hidden = true);
+    $('#login-email').required = false; $('#login-pass').required = false;
+    $('#login-btn').textContent = 'Recargar';
+    $('#login-error').textContent = 'No se pudo cargar el servicio de acceso (error de conexión). Revisá tu internet y recargá la página.';
+    $('#login-form').addEventListener('submit', e => { e.preventDefault(); location.reload(); });
+    return;
+  }
+  $('#boot').hidden = false;   // "Entrando…" mientras se comprueba la sesión
   sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-  $('#btn-logout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
-  const { data: { session } } = await sb.auth.getSession();
-  if (session) { await startApp(); return; }
-  $('#login').hidden = false;
-  $('#login-form').addEventListener('submit', async e => {
-    e.preventDefault(); $('#login-error').textContent = '';
-    const { error } = await sb.auth.signInWithPassword({ email: $('#login-email').value.trim(), password: $('#login-pass').value });
-    if (error) { $('#login-error').textContent = 'Email o contraseña incorrectos.'; return; }
-    await startApp();
-  });
+  $('#btn-logout').onclick = async () => { try { await sb.auth.signOut(); } catch {} location.reload(); };
+  $('#login-form').addEventListener('submit', onLogin);
+  let session = null;
+  try { session = (await withTimeout(sb.auth.getSession(), LOGIN_TIMEOUT_MS)).data.session; } catch { session = null; }
+  if (session && await startApp()) return;
+  $('#boot').hidden = true; $('#login').hidden = false;
+  if (session) $('#login-error').textContent = MSG_LOAD_FAIL;
 }
 init();
 })();

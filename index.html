@@ -6,9 +6,12 @@
 <title>Mi flujo de trabajo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
+
+<!-- Pantalla "Entrando…" mientras se comprueba la sesión (solo con Supabase) -->
+<div id="boot" class="boot" role="status" hidden><span class="spinner"></span> Entrando…</div>
 
 <!-- Login (solo si hay Supabase configurado) -->
 <main id="login" class="login" hidden>
@@ -17,7 +20,7 @@
     <p class="muted">Ingresá con tu usuario.</p>
     <label>Email <input type="email" id="login-email" required autocomplete="username"></label>
     <label>Contraseña <input type="password" id="login-pass" required autocomplete="current-password"></label>
-    <button class="btn primary" type="submit">Entrar</button>
+    <button class="btn primary" type="submit" id="login-btn">Entrar</button>
     <p id="login-error" class="error" role="alert"></p>
   </form>
 </main>
@@ -28,7 +31,6 @@
     <nav class="tabs" role="tablist" aria-label="Secciones">
       <a href="#tareas"  role="tab" data-tab="tareas">Tareas</a>
       <a href="#config"  role="tab" data-tab="config">Configuración</a>
-      <a href="#links"   role="tab" data-tab="links">Links</a>
       <a href="#notas"   role="tab" data-tab="notas">Notas</a>
     </nav>
     <div class="top-actions">
@@ -81,25 +83,6 @@
       <textarea id="cfg-editor" class="editor card" spellcheck="false" hidden aria-label="Markdown de la configuración"></textarea>
     </section>
 
-    <!-- LINKS -->
-    <section id="view-links" class="view" hidden>
-      <form id="link-form" class="card link-form" autocomplete="off">
-        <input id="link-title" placeholder="Nombre" required maxlength="120" aria-label="Nombre del link">
-        <input id="link-url" type="text" inputmode="url" placeholder="https://…" required aria-label="URL">
-        <div class="cat-pick">
-          <select id="link-cat" aria-label="Categoría"></select>
-          <button type="button" class="btn small" id="btn-cats-link" title="Administrar categorías y colores" aria-label="Administrar categorías">⚙</button>
-        </div>
-        <button class="btn primary" type="submit">Agregar</button>
-      </form>
-      <div class="filters">
-        <input id="link-search" type="search" placeholder="Buscar…" aria-label="Buscar links">
-        <div id="link-cats" class="chips"></div>
-      </div>
-      <div id="link-grid" class="grid"></div>
-      <p id="link-empty" class="empty" hidden></p>
-    </section>
-
     <!-- NOTAS -->
     <section id="view-notas" class="view" hidden>
       <div class="notes-layout">
@@ -108,6 +91,8 @@
             <input id="note-search" type="search" placeholder="Buscar en notas…" aria-label="Buscar notas">
             <button class="btn primary small" id="note-new">+ Nueva</button>
           </div>
+          <select id="note-tpl" aria-label="Crear una nota nueva desde una plantilla"></select>
+          <div id="note-tag-filter" class="chips" aria-label="Filtrar por etiqueta"></div>
           <ul id="note-list" class="note-list"></ul>
         </aside>
         <div class="notes-main card" id="note-main" hidden>
@@ -120,6 +105,12 @@
             </div>
             <span id="note-state" class="muted small-text" aria-live="polite"></span>
             <button class="btn small danger" id="note-del">Borrar</button>
+          </div>
+          <div class="note-meta">
+            <button type="button" class="btn small" id="note-pin" aria-pressed="false">📌 Fijar</button>
+            <div id="note-tags" class="chips"></div>
+            <input id="note-tag-input" list="tag-list" placeholder="＋ etiqueta" maxlength="60" aria-label="Agregar etiqueta (Enter o coma)">
+            <datalist id="tag-list"></datalist>
           </div>
           <div class="md-tools" id="md-tools" role="toolbar" aria-label="Formato">
             <button type="button" data-pre="**" data-post="**" data-ph="negrita" title="Negrita"><b>B</b></button>
@@ -160,7 +151,7 @@
 <dialog id="dlg-cats">
   <div class="dlg-form">
     <h3>Categorías</h3>
-    <p class="muted small-text" style="margin:0">Cada categoría tiene su color. Se usan en tareas y links.</p>
+    <p class="muted small-text" style="margin:0">Cada categoría tiene su color y sirve para clasificar las tareas.</p>
     <ul id="cat-manage" class="cat-manage"></ul>
     <form id="cat-add" class="cat-row" autocomplete="off">
       <input type="color" id="cat-new-color" aria-label="Color de la nueva categoría" value="#2563eb">
@@ -180,6 +171,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="config.js"></script>
 <script src="seed.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
