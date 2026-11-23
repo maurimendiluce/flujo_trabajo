@@ -1,12 +1,18 @@
 # Mi flujo de trabajo
 
-App web de una sola página (HTML + JS, sin build) con tres solapas:
+App web de una sola página (HTML + JS, sin build) con cinco solapas:
 
-- **Tareas**: título, fecha y categoría (menú desplegable); filtros por estado y categoría; vencidas y de hoy resaltadas. Cada tarea puede tener **descripción** (Markdown y LaTeX) y **subtareas** con progreso (▸ para abrir el detalle). Opcional: se envían a Google Tasks y se ven en Google Calendar.
+- **Tareas**: título, fecha y categoría (menú desplegable); filtros por estado y categoría; vencidas y de hoy resaltadas. Cada tarea puede tener **proyecto**, **repetición** y **descripción** (Markdown y LaTeX) y **subtareas** con progreso (▸ para abrir el detalle). Opcional: se envían a Google Tasks y se ven en Google Calendar.
+- **Proyectos**: agrupan tareas, notas y links de un mismo tema (ej. *Parcial AN*, *Tesis*, *Concurso X*) dentro de un **área** (Docencia, Investigación, Gestión, Personal). Cada tarjeta muestra el avance (tareas hechas), las vencidas y la próxima fecha, con atajos a sus tareas, notas y links. Los proyectos terminados se **archivan** (no se borran).
+- **Links**: enlaces útiles con título, categoría y proyecto; búsqueda, filtros y botón para copiar la URL. Solo se aceptan URLs `http(s)`.
 - **Configuración**: tu `mi_configuracion/README.md` renderizado como Markdown (con LaTeX y botón *Copiar* en cada bloque de código). Se puede editar y guardar.
 - **Notas**: editor Markdown con vista previa en vivo (Editar / Ambos / Vista), **LaTeX**, barra de formato y autoguardado. Con **etiquetas** (filtro en la barra lateral), notas **fijadas** (quedan arriba) y **plantillas** (acta de reunión, clase, idea de investigación, resumen de paper).
 
 Además: **Exportar / Importar** (copia de seguridad en JSON), modo claro/oscuro automático y diseño adaptado a móvil.
+
+## Tareas que se repiten
+
+En cada tarea se elige la repetición: todos los días, lunes a viernes, cada semana, cada 2 semanas, cada mes o cada año (necesita fecha; si no la tiene se usa hoy). Al **tildar** la tarea, se crea sola la siguiente: la primera fecha posterior a la actual que no esté en el pasado (si completás una clase semanal con retraso, la próxima cae en la fecha que corresponde de ahora en adelante). Si la destildás, se quita la repetición recién creada, siempre que no la hayas completado. Las repeticiones mensuales conservan el día original (31 → 28 de febrero → 31 de marzo). Las repeticiones también se sincronizan con Google Tasks como tareas independientes.
 
 ## Categorías con color
 
@@ -47,7 +53,7 @@ En modo Local los datos no viajan entre dispositivos: usá *Exportar* para hacer
 Podés usar un proyecto de Supabase que ya tengas: la app solo usa la tabla `flujo_items`.
 
 1. En Supabase, *SQL Editor*: pegá y ejecutá `supabase.sql`.
-   - **Si ya habías ejecutado la versión anterior**, ejecutá en cambio `supabase-update.sql` (agrega el tipo "category").
+   - **Si ya habías ejecutado una versión anterior**, ejecutá en cambio `supabase-update.sql` (agrega los tipos "category" y "project"). Sin este paso, crear un proyecto falla con un aviso.
 2. Usá el mismo usuario que ya tengas en ese proyecto (o creá uno en *Authentication → Users*).
 3. *Project Settings → API*: copiá **Project URL** y la clave **anon public** en `config.js`.
 4. Subí `config.js` actualizado. La anon key es pública por diseño; lo que protege tus datos es la política RLS del SQL (cada fila solo es visible para su dueño).
@@ -90,6 +96,6 @@ Limitaciones: los cambios hechos directamente en Google no vuelven a la app; si 
 - `config.js`: claves de Supabase y de Google (opcionales).
 - `seed.js`: texto inicial de la solapa Configuración (copiado de tu README del zip).
 - `supabase.sql`: tabla `flujo_items` + políticas RLS (instalación nueva).
-- `supabase-update.sql`: actualización para quien ya tenía la versión anterior.
+- `supabase-update.sql`: actualización para quien ya tenía una versión anterior (agrega los tipos `category` y `project`).
 
 Las librerías `marked`, `DOMPurify`, `KaTeX` y `supabase-js` se cargan desde CDN con versión fija; para Google se usa la librería oficial `accounts.google.com/gsi/client`.

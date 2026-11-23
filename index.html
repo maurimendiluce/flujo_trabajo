@@ -6,7 +6,7 @@
 <title>Mi flujo de trabajo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -30,6 +30,8 @@
     <h1>Mi flujo de trabajo</h1>
     <nav class="tabs" role="tablist" aria-label="Secciones">
       <a href="#tareas"  role="tab" data-tab="tareas">Tareas</a>
+      <a href="#proyectos" role="tab" data-tab="proyectos">Proyectos</a>
+      <a href="#links"   role="tab" data-tab="links">Links</a>
       <a href="#config"  role="tab" data-tab="config">Configuración</a>
       <a href="#notas"   role="tab" data-tab="notas">Notas</a>
     </nav>
@@ -54,9 +56,12 @@
           <select id="task-cat" aria-label="Categoría"></select>
           <button type="button" class="btn small" id="btn-cats-task" title="Administrar categorías y colores" aria-label="Administrar categorías">⚙</button>
         </div>
+        <select id="task-proj" aria-label="Proyecto"></select>
+        <select id="task-repeat" aria-label="Repetir"></select>
         <button class="btn primary" type="submit">Agregar</button>
       </form>
       <div class="filters">
+        <select id="task-proj-filter" aria-label="Filtrar por proyecto o área"></select>
         <div class="seg" id="task-status" role="group" aria-label="Estado">
           <button data-v="pending" class="on">Pendientes</button>
           <button data-v="done">Hechas</button>
@@ -66,6 +71,38 @@
       </div>
       <ul id="task-list" class="list"></ul>
       <p id="task-empty" class="empty" hidden></p>
+    </section>
+
+    <!-- PROYECTOS -->
+    <section id="view-proyectos" class="view" hidden>
+      <form id="proj-form" class="card proj-form" autocomplete="off">
+        <input id="proj-name" placeholder="Nuevo proyecto… (ej.: Parcial AN, Tesis, Concurso X)" required maxlength="80" aria-label="Nombre del proyecto">
+        <select id="proj-area" aria-label="Área"></select>
+        <button class="btn primary" type="submit">Crear</button>
+      </form>
+      <div id="proj-list"></div>
+      <p id="proj-empty" class="empty" hidden>Todavía no hay proyectos. Creá el primero arriba: agrupa tareas, notas y links de un mismo tema.</p>
+    </section>
+
+    <!-- LINKS -->
+    <section id="view-links" class="view" hidden>
+      <form id="link-form" class="card link-form" autocomplete="off">
+        <input id="link-title" placeholder="Título (opcional)" maxlength="150" aria-label="Título del link">
+        <input id="link-url" placeholder="https://…" required maxlength="2000" aria-label="URL">
+        <div class="cat-pick">
+          <select id="link-cat" aria-label="Categoría"></select>
+          <button type="button" class="btn small" id="btn-cats-link" title="Administrar categorías y colores" aria-label="Administrar categorías">⚙</button>
+        </div>
+        <select id="link-proj" aria-label="Proyecto"></select>
+        <button class="btn primary" type="submit">Agregar</button>
+      </form>
+      <div class="filters">
+        <input id="link-search" type="search" placeholder="Buscar links…" aria-label="Buscar links">
+        <select id="link-proj-filter" aria-label="Filtrar por proyecto o área"></select>
+        <div id="link-cats" class="chips" aria-label="Filtrar por categoría"></div>
+      </div>
+      <div id="link-list" class="grid"></div>
+      <p id="link-empty" class="empty" hidden></p>
     </section>
 
     <!-- CONFIGURACIÓN -->
@@ -92,6 +129,7 @@
             <button class="btn primary small" id="note-new">+ Nueva</button>
           </div>
           <select id="note-tpl" aria-label="Crear una nota nueva desde una plantilla"></select>
+          <select id="note-proj-filter" aria-label="Filtrar notas por proyecto o área"></select>
           <div id="note-tag-filter" class="chips" aria-label="Filtrar por etiqueta"></div>
           <ul id="note-list" class="note-list"></ul>
         </aside>
@@ -108,6 +146,7 @@
           </div>
           <div class="note-meta">
             <button type="button" class="btn small" id="note-pin" aria-pressed="false">📌 Fijar</button>
+            <select id="note-proj" aria-label="Proyecto de la nota"></select>
             <div id="note-tags" class="chips"></div>
             <input id="note-tag-input" list="tag-list" placeholder="＋ etiqueta" maxlength="60" aria-label="Agregar etiqueta (Enter o coma)">
             <datalist id="tag-list"></datalist>
@@ -181,6 +220,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="config.js"></script>
 <script src="seed.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

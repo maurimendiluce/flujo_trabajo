@@ -71,8 +71,8 @@ function renderMd(md, target) {
 }
 
 /* ---------- capa de datos ---------- */
-// Cada elemento: { id, kind: 'task'|'link'|'note'|'config'|'category', data: {...} }
-const KINDS = ['task', 'link', 'note', 'config', 'category'];
+// Cada elemento: { id, kind: 'task'|'link'|'note'|'config'|'category'|'project', data: {...} }
+const KINDS = ['task', 'link', 'note', 'config', 'category', 'project'];
 const cfg = window.APP_CONFIG || {};
 const useSB = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY);   // modo nube configurado
 let sb = null;
@@ -122,7 +122,7 @@ async function put(kind, data, id) {
   catch (e) {
     console.error(e);
     if (prev) items[items.findIndex(x => x.id === id)] = prev; else items = items.filter(x => x.id !== id);
-    toast('No se pudo guardar: ' + (e.message || e));
+    toast('No se pudo guardar: ' + (e.code === '23514' ? 'falta actualizar la base (ejecutá supabase-update.sql en Supabase)' : (e.message || e)));
     throw e;
   }
   return it;
@@ -148,8 +148,10 @@ const catOptions = sel => `<option value="">Sin categoría</option>` +
 const dupName = (name, exceptId) => cats().some(x => x.id !== exceptId && x.data.name.toLowerCase() === name.toLowerCase());
 
 function fillCatSelects() {
-  const s = $('#task-cat'); const v = s.value;
-  s.innerHTML = catOptions(''); s.value = catById(v) ? v : '';
+  for (const id of ['#task-cat', '#link-cat']) {
+    const s = $(id); const v = s.value;
+    s.innerHTML = catOptions(''); s.value = catById(v) ? v : '';
+  }
 }
 
 // Migración: las categorías antiguas eran texto (data.cat); ahora son elementos con color (data.catId)
@@ -214,10 +216,132 @@ $('#cat-add').addEventListener('submit', async e => {
 $('#cats-close').onclick = () => $('#dlg-cats').close();
 $('#dlg-cats').addEventListener('close', () => { fillCatSelects(); const f = onCatsClose; onCatsClose = null; if (f) f(lastNewCat); });
 $('#btn-cats-task').onclick = () => openCats();
-$('#task-cat').addEventListener('change', e => {
+$('#btn-cats-link').onclick = () => openCats();
+for (const id of ['#task-cat', '#link-cat']) $(id).addEventListener('change', e => {
   if (e.target.value !== '__new') return;
   e.target.value = '';
   openCats(newId => { if (newId) e.target.value = newId; });
+});
+
+/* ---------- áreas y proyectos ---------- */
+// Un proyecto agrupa tareas, notas y links (campo projId). Pertenece a un área fija.
+const AREAS = [
+  { id: 'docencia',      name: 'Docencia',      color: '#2563eb' },
+  { id: 'investigacion', name: 'Investigación', color: '#9333ea' },
+  { id: 'gestion',       name: 'Gestión',       color: '#d97706' },
+  { id: 'personal',      name: 'Personal',      color: '#16a34a' },
+];
+const areaOf = id => AREAS.find(a => a.id === id) || { id: '', name: 'Sin área', color: '#64748b' };
+const projects = () => ofKind('project');
+const projById = id => id ? items.find(x => x.id === id && x.kind === 'project') : null;
+const projColor = p => areaOf(p?.data.area).color;
+const projChip = id => { const p = projById(id); return p ? `<span class="chip proj" style="--c:${projColor(p)}" title="${esc(areaOf(p.data.area).name)}">${esc(p.data.name)}</span>` : ''; };
+const usesProj = i => i.kind === 'task' || i.kind === 'link' || i.kind === 'note';
+const projSort = (a, b) => (AREAS.findIndex(x => x.id === a.data.area) + 1 || 99) - (AREAS.findIndex(x => x.id === b.data.area) + 1 || 99)
+  || a.data.name.localeCompare(b.data.name, 'es');
+const projVisible = (p, sel) => !p.data.archived || p.id === sel;   // los archivados no se ofrecen salvo que ya estén elegidos
+const projOptions = sel => '<option value="">Sin proyecto</option>' + AREAS.map(a => {
+  const ps = projects().filter(p => p.data.area === a.id && projVisible(p, sel)).sort(projSort);
+  return ps.length ? `<optgroup label="${esc(a.name)}">${ps.map(p => `<option value="${p.id}"${p.id === sel ? ' selected' : ''}>${esc(p.data.name)}</option>`).join('')}</optgroup>` : '';
+}).join('');
+const projFieldOptions = sel => [{ v: '', label: 'Sin proyecto' },
+  ...projects().filter(p => projVisible(p, sel)).sort(projSort).map(p => ({ v: p.id, label: `${areaOf(p.data.area).name} · ${p.data.name}` }))];
+// filtro: '' = todo, 'area:<id>' = toda un área, '__none' = sin proyecto, o el id de un proyecto
+const validProjFilter = f => !f || f === '__none' || f.startsWith('area:') || !!projById(f);
+const projFilterOptions = sel => '<option value="">Todos los proyectos</option>' + AREAS.map(a => {
+  const ps = projects().filter(p => p.data.area === a.id && projVisible(p, sel)).sort(projSort);
+  return `<optgroup label="${esc(a.name)}"><option value="area:${a.id}"${sel === 'area:' + a.id ? ' selected' : ''}>Toda el área ${esc(a.name)}</option>` +
+    ps.map(p => `<option value="${p.id}"${p.id === sel ? ' selected' : ''}>${esc(p.data.name)}</option>`).join('') + '</optgroup>';
+}).join('') + `<option value="__none"${sel === '__none' ? ' selected' : ''}>Sin proyecto</option>`;
+const projMatch = (it, f) => !f || (f === '__none' ? !it.data.projId
+  : f.startsWith('area:') ? projById(it.data.projId)?.data.area === f.slice(5) : it.data.projId === f);
+
+function fillProjSelects() {
+  for (const id of ['#task-proj', '#link-proj']) {
+    const s = $(id), v = s.value, p = projById(v);
+    s.innerHTML = projOptions(''); s.value = p && !p.data.archived ? v : '';
+  }
+  const a = $('#proj-area'), v = a.value;
+  a.innerHTML = AREAS.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join(''); a.value = v || AREAS[0].id;
+}
+
+const projUsage = id => items.filter(i => usesProj(i) && i.data.projId === id);
+function projStats(p) {
+  const ts = ofKind('task').filter(t => t.data.projId === p.id), today = todayStr();
+  const done = ts.filter(t => t.data.done).length;
+  const open = ts.filter(t => !t.data.done && t.data.due);
+  return {
+    total: ts.length, done, pend: ts.length - done,
+    over: open.filter(t => t.data.due < today).length,
+    next: open.map(t => t.data.due).filter(d => d >= today).sort()[0] || '',
+    notes: ofKind('note').filter(n => n.data.projId === p.id).length,
+    links: ofKind('link').filter(l => l.data.projId === p.id).length,
+  };
+}
+function projCard(p) {
+  const s = projStats(p), pct = s.total ? Math.round(100 * s.done / s.total) : 0;
+  return `<article class="card proj-card ${p.data.archived ? 'arch' : ''}" style="--c:${projColor(p)}" data-id="${p.id}">
+    <div class="p-head"><span class="p-name">${esc(p.data.name)}</span>
+      <button class="icon-btn" data-act="edit" aria-label="Editar proyecto" title="Editar">✎</button></div>
+    ${p.data.desc ? `<p class="p-desc">${esc(p.data.desc)}</p>` : ''}
+    <div class="p-bar" role="progressbar" aria-label="Avance" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>
+    <div class="p-stats"><span>${s.done}/${s.total} tareas hechas</span>
+      ${s.over ? `<span class="over">${s.over} vencida(s)</span>` : ''}
+      ${s.next ? `<span>Próxima: ${esc(dueInfo(s.next, false).text)}</span>` : ''}</div>
+    <div class="p-go">
+      <button class="btn small" data-go="tareas">Tareas · ${s.pend}</button>
+      <button class="btn small" data-go="notas">Notas · ${s.notes}</button>
+      <button class="btn small" data-go="links">Links · ${s.links}</button></div>
+  </article>`;
+}
+function renderProjects() {
+  fillProjSelects();
+  const all = projects().sort(projSort), act = all.filter(p => !p.data.archived), arch = all.filter(p => p.data.archived);
+  const group = a => { const ps = act.filter(p => (areaOf(p.data.area).id || '') === a.id); return ps.length
+    ? `<h3 class="area-title" style="--c:${a.color}">${esc(a.name)}</h3><div class="grid">${ps.map(projCard).join('')}</div>` : ''; };
+  $('#proj-list').innerHTML = AREAS.map(group).join('') +
+    (arch.length ? `<details class="arch-box"><summary>Archivados (${arch.length})</summary><div class="grid">${arch.map(projCard).join('')}</div></details>` : '');
+  $('#proj-empty').hidden = all.length > 0;
+}
+$('#proj-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = $('#proj-name').value.trim(); if (!name) return;
+  if (projects().some(p => p.data.name.toLowerCase() === name.toLowerCase() && p.data.area === $('#proj-area').value)) { toast('Ya existe un proyecto con ese nombre en esa área'); return; }
+  try { await put('project', { name, area: $('#proj-area').value, desc: '', archived: false, created: new Date().toISOString() }); }
+  catch { return; }
+  $('#proj-name').value = ''; renderProjects(); $('#proj-name').focus();
+});
+function goProj(tab, id) {   // abre una pestaña ya filtrada por el proyecto
+  if (tab === 'tareas') { taskUI.proj = id; taskUI.status = 'all'; $('#task-proj').value = id; }
+  else if (tab === 'links') { linkUI.proj = id; linkUI.cat = ''; linkUI.q = ''; $('#link-search').value = ''; }
+  else { noteUI.proj = id; noteUI.tag = ''; noteUI.q = ''; $('#note-search').value = ''; }
+  location.hash = '#' + tab;
+}
+$('#proj-list').addEventListener('click', e => {
+  const card = e.target.closest('.proj-card'); if (!card) return;
+  const p = projById(card.dataset.id); if (!p) return;
+  const go = e.target.closest('[data-go]'); if (go) return goProj(go.dataset.go, p.id);
+  if (!e.target.closest('[data-act=edit]')) return;
+  openEditor({
+    title: 'Editar proyecto',
+    fields: [
+      { key: 'name', label: 'Nombre', value: p.data.name, required: true, max: 80 },
+      { key: 'area', label: 'Área', type: 'select', value: p.data.area, options: AREAS.map(a => ({ v: a.id, label: a.name })) },
+      { key: 'desc', label: 'Descripción (opcional)', type: 'textarea', value: p.data.desc || '', max: 600 },
+      { key: 'archived', label: 'Estado', type: 'select', value: p.data.archived ? '1' : '0', options: [{ v: '0', label: 'Activo' }, { v: '1', label: 'Archivado' }] },
+    ],
+    onSave: async v => {
+      if (!v.name.trim()) return false;
+      try { await put('project', { ...p.data, name: v.name.trim(), area: v.area, desc: (v.desc || '').trim(), archived: v.archived === '1' }, p.id); } catch { return false; }
+      renderProjects();
+    },
+    onDelete: async () => {
+      const n = projUsage(p.id).length;
+      if (n && !confirm(`Se desvinculan ${n} elemento(s) (tareas, notas y links); no se borran. ¿Seguir?`)) return;
+      for (const it of projUsage(p.id)) await put(it.kind, { ...it.data, projId: '' }, it.id).catch(() => {});
+      await remove(p.id); renderProjects();
+    },
+  });
 });
 
 /* ---------- diálogo genérico ---------- */
@@ -285,6 +409,8 @@ async function gfetch(method, url, body) {
 function gNotes(t) {
   const parts = [];
   const c = catById(t.catId); if (c) parts.push(`Categoría: ${c.data.name}`);
+  const pr = projById(t.projId); if (pr) parts.push(`Proyecto: ${areaOf(pr.data.area).name} · ${pr.data.name}`);
+  if (t.repeat) parts.push(`Se repite: ${REPEATS[t.repeat]?.toLowerCase() || t.repeat}`);
   if (t.desc?.trim()) parts.push(t.desc.trim());
   if (t.subs?.length) parts.push('Subtareas:\n' + t.subs.map(s => `${s.done ? '☑' : '☐'} ${s.text}`).join('\n'));
   return parts.join('\n\n').slice(0, 8000);
@@ -339,8 +465,31 @@ $('#btn-google').onclick = async () => {
 $('#btn-gsync').onclick = () => gQueue(gSyncAll);
 
 /* ---------- TAREAS ---------- */
-const taskUI = { status: 'pending', cat: '', open: new Set() };
+const taskUI = { status: 'pending', cat: '', proj: '', open: new Set() };
 const tasks = () => ofKind('task');
+
+// repetición: al completar una tarea que se repite, se crea la siguiente
+const REPEATS = { '': 'No se repite', daily: 'Todos los días', weekdays: 'Lunes a viernes', weekly: 'Cada semana', biweekly: 'Cada 2 semanas', monthly: 'Cada mes', yearly: 'Cada año' };
+const REPEAT_SHORT = { daily: 'diaria', weekdays: 'lun–vie', weekly: 'semanal', biweekly: 'quincenal', monthly: 'mensual', yearly: 'anual' };
+const repeatOptions = sel => Object.entries(REPEATS).map(([k, l]) => `<option value="${k}"${k === sel ? ' selected' : ''}>${l}</option>`).join('');
+function stepDate(str, rep, rday) {   // fecha siguiente a str según la repetición
+  const d = new Date(str + 'T00:00');
+  if (rep === 'weekdays') { do d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6); }
+  else if (rep === 'monthly' || rep === 'yearly') {
+    const first = new Date(d.getFullYear(), d.getMonth() + (rep === 'yearly' ? 12 : 1), 1);
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    first.setDate(Math.min(rday || d.getDate(), last));   // 31 de enero → 28/29 de febrero → vuelve al 31
+    return ymd(first);
+  } else d.setDate(d.getDate() + ({ daily: 1, weekly: 7, biweekly: 14 }[rep] || 1));
+  return ymd(d);
+}
+function nextDue(t) {   // la primera ocurrencia posterior a la fecha de la tarea y que no esté en el pasado
+  let n = stepDate(t.due, t.repeat, t.rday); const today = todayStr();
+  for (let i = 0; n < today && i < 1000; i++) n = stepDate(n, t.repeat, t.rday);
+  return n;
+}
+const dayOf = due => due ? Number(due.slice(8, 10)) : 0;
+$('#task-repeat').innerHTML = repeatOptions('');
 
 function dueInfo(due, done) {
   if (!due) return { text: 'Sin fecha', cls: '' };
@@ -376,6 +525,8 @@ const chipFilters = (cur) => cats().length
 
 function renderTasks() {
   if (taskUI.cat && !catById(taskUI.cat)) taskUI.cat = '';
+  if (!validProjFilter(taskUI.proj)) taskUI.proj = '';
+  $('#task-proj-filter').innerHTML = projFilterOptions(taskUI.proj);
   $('#task-cats').innerHTML = chipFilters(taskUI.cat);
   $$('#task-status button').forEach(b => b.classList.toggle('on', b.dataset.v === taskUI.status));
 
@@ -383,6 +534,7 @@ function renderTasks() {
     if (taskUI.status === 'pending' && t.data.done) return false;
     if (taskUI.status === 'done' && !t.data.done) return false;
     if (taskUI.cat && t.data.catId !== taskUI.cat) return false;
+    if (!projMatch(t, taskUI.proj)) return false;
     return true;
   });
   list.sort((a, b) => {
@@ -397,6 +549,8 @@ function renderTasks() {
       <input type="checkbox" ${d.done ? 'checked' : ''} aria-label="Marcar como hecha">
       <span class="t-title">${esc(d.title)}</span>
       ${catChip(d.catId)}
+      ${projChip(d.projId)}
+      ${d.repeat ? `<span class="t-repeat" title="${esc(REPEATS[d.repeat] || '')}">↻ ${esc(REPEAT_SHORT[d.repeat] || '')}</span>` : ''}
       ${st.n ? `<span class="t-progress${st.d === st.n ? ' full' : ''}" title="Subtareas hechas">☑ ${st.d}/${st.n}</span>` : ''}
       ${d.desc ? '<span class="t-hasdesc" title="Tiene descripción">≡</span>' : ''}
       <span class="due ${di.cls}">${esc(di.text)}</span>
@@ -419,11 +573,19 @@ $('#task-form').addEventListener('submit', async e => {
   e.preventDefault();
   const title = $('#task-title').value.trim(); if (!title) return;
   const catId = $('#task-cat').value === '__new' ? '' : $('#task-cat').value;
+  const repeat = $('#task-repeat').value;
+  let due = $('#task-due').value;
+  if (repeat && !due) due = todayStr();   // una tarea que se repite necesita fecha
   try {
-    const it = await put('task', { title, due: $('#task-due').value, catId, done: false, created: new Date().toISOString(), gtask: '' });
+    const it = await put('task', { title, due, catId, projId: $('#task-proj').value, repeat, rday: repeat ? dayOf(due) : 0, done: false, created: new Date().toISOString(), gtask: '' });
     $('#task-title').value = ''; $('#task-title').focus();
     renderTasks(); gSync(it.id);
   } catch { /* put() ya avisó */ }
+});
+$('#task-proj-filter').addEventListener('change', e => {
+  taskUI.proj = e.target.value;
+  if (projById(taskUI.proj)) $('#task-proj').value = taskUI.proj;   // las tareas nuevas van a ese proyecto
+  renderTasks();
 });
 $('#task-status').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { taskUI.status = b.dataset.v; renderTasks(); } });
 $('#task-cats').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { taskUI.cat = b.dataset.c; renderTasks(); } });
@@ -441,7 +603,20 @@ $('#task-list').addEventListener('click', async e => {
   }
   if (e.target.matches('input[type=checkbox]')) {
     try {
-      await put('task', { ...it.data, done: e.target.checked, doneAt: e.target.checked ? new Date().toISOString() : null }, it.id);
+      const done = e.target.checked, upd = { ...it.data, done, doneAt: done ? new Date().toISOString() : null };
+      if (done && it.data.repeat && it.data.due && !it.data.nextId) {   // crea la próxima repetición
+        const d = it.data;
+        const nt = await put('task', { title: d.title, due: nextDue(d), catId: d.catId || '', projId: d.projId || '', desc: d.desc || '',
+          repeat: d.repeat, rday: d.rday || dayOf(d.due), subs: (d.subs || []).map(s => ({ ...s, done: false })),
+          done: false, created: new Date().toISOString(), gtask: '' });
+        upd.nextId = nt.id; gSync(nt.id);
+        toast(`Próxima repetición: ${dueInfo(nt.data.due, false).text}`);
+      } else if (!done && it.data.nextId) {   // al reabrirla se quita la repetición ya creada (si no se tocó)
+        const nx = items.find(x => x.id === it.data.nextId);
+        if (nx && !nx.data.done) { const g = nx.data.gtask; taskUI.open.delete(nx.id); await remove(nx.id); gDelete(g); }
+        upd.nextId = '';
+      }
+      await put('task', upd, it.id);
       renderTasks(); gSync(it.id);
     } catch { renderTasks(); }
   } else if (e.target.closest('[data-act=toggle]') || e.target.closest('.t-title')) {
@@ -454,11 +629,14 @@ $('#task-list').addEventListener('click', async e => {
         { key: 'title', label: 'Tarea', value: it.data.title, required: true },
         { key: 'due', label: 'Fecha', type: 'date', value: it.data.due },
         { key: 'catId', label: 'Categoría', type: 'select', value: it.data.catId || '', options: catFieldOptions() },
+        { key: 'projId', label: 'Proyecto', type: 'select', value: it.data.projId || '', options: projFieldOptions(it.data.projId || '') },
+        { key: 'repeat', label: 'Repetición (necesita fecha)', type: 'select', value: it.data.repeat || '', options: Object.entries(REPEATS).map(([k, l]) => ({ v: k, label: l })) },
         { key: 'desc', label: 'Descripción (Markdown y LaTeX)', type: 'textarea', value: it.data.desc || '' },
       ],
       onSave: async v => {
         if (!v.title.trim()) return false;
-        try { await put('task', { ...it.data, title: v.title.trim(), due: v.due, catId: v.catId, desc: (v.desc || '').trim() }, it.id); } catch { return false; }
+        const due = v.repeat && !v.due ? todayStr() : v.due;
+        try { await put('task', { ...it.data, title: v.title.trim(), due, catId: v.catId, projId: v.projId, repeat: v.repeat, rday: v.repeat ? dayOf(due) : 0, desc: (v.desc || '').trim() }, it.id); } catch { return false; }
         renderTasks(); gSync(it.id);
       },
       onDelete: async () => { const g = it.data.gtask; taskUI.open.delete(it.id); await remove(it.id); renderTasks(); gDelete(g); },
@@ -488,6 +666,81 @@ $('#task-list').addEventListener('keydown', async e => {
   $(`#task-list .task[data-id="${it.id}"] .sub-add`)?.focus();
 });
 
+/* ---------- LINKS ---------- */
+const linkUI = { q: '', cat: '', proj: '' };
+const links = () => ofKind('link');
+function cleanUrl(raw) {   // solo http(s); si falta el esquema se agrega https://
+  let u = String(raw || '').trim(); if (!u) return '';
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'https://' + u;
+  try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch { return ''; }
+}
+const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+const linkTitle = l => (l.data.title || '').trim() || hostOf(l.data.url);
+
+function renderLinks() {
+  if (linkUI.cat && !catById(linkUI.cat)) linkUI.cat = '';
+  if (!validProjFilter(linkUI.proj)) linkUI.proj = '';
+  $('#link-proj-filter').innerHTML = projFilterOptions(linkUI.proj);
+  $('#link-cats').innerHTML = chipFilters(linkUI.cat);
+  const q = norm(linkUI.q);
+  const list = links().filter(l =>
+    (!linkUI.cat || l.data.catId === linkUI.cat) && projMatch(l, linkUI.proj) &&
+    (!q || norm(`${l.data.title} ${l.data.url} ${l.data.desc || ''}`).includes(q)))
+    .sort((a, b) => linkTitle(a).localeCompare(linkTitle(b), 'es'));
+  $('#link-list').innerHTML = list.map(l => `
+    <div class="card link-card" data-id="${l.id}">
+      <a class="l-main" href="${esc(l.data.url)}" target="_blank" rel="noopener noreferrer">
+        <span class="l-title">${esc(linkTitle(l))}</span><span class="l-host">${esc(hostOf(l.data.url))}</span></a>
+      ${l.data.desc ? `<p class="l-desc">${esc(l.data.desc)}</p>` : ''}
+      <div class="l-foot"><span class="chips">${catChip(l.data.catId)}${projChip(l.data.projId)}</span>
+        <span><button class="icon-btn" data-act="copy" aria-label="Copiar URL" title="Copiar URL">⧉</button>
+        <button class="icon-btn" data-act="edit" aria-label="Editar link" title="Editar">✎</button></span></div>
+    </div>`).join('');
+  const empty = $('#link-empty');
+  empty.hidden = list.length > 0;
+  empty.textContent = links().length === 0 ? 'Todavía no hay links. Agregá el primero arriba (campus, repositorios, revistas, sistemas de la facultad…).' : 'No hay links con este filtro.';
+}
+$('#link-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const url = cleanUrl($('#link-url').value);
+  if (!url) { toast('La URL no es válida (debe ser http o https)'); return; }
+  const catId = $('#link-cat').value === '__new' ? '' : $('#link-cat').value;
+  try { await put('link', { title: $('#link-title').value.trim(), url, catId, projId: $('#link-proj').value, desc: '', created: new Date().toISOString() }); }
+  catch { return; }
+  $('#link-title').value = ''; $('#link-url').value = ''; $('#link-url').focus(); renderLinks();
+});
+$('#link-search').addEventListener('input', e => { linkUI.q = e.target.value; renderLinks(); });
+$('#link-proj-filter').addEventListener('change', e => {
+  linkUI.proj = e.target.value;
+  if (projById(linkUI.proj)) $('#link-proj').value = linkUI.proj;
+  renderLinks();
+});
+$('#link-cats').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { linkUI.cat = b.dataset.c; renderLinks(); } });
+$('#link-list').addEventListener('click', async e => {
+  const card = e.target.closest('.link-card'); if (!card) return;
+  const it = items.find(x => x.id === card.dataset.id); if (!it) return;
+  if (e.target.closest('[data-act=copy]')) {
+    try { await navigator.clipboard.writeText(it.data.url); toast('URL copiada'); } catch { toast('No se pudo copiar'); }
+  } else if (e.target.closest('[data-act=edit]')) {
+    openEditor({
+      title: 'Editar link',
+      fields: [
+        { key: 'title', label: 'Título', value: it.data.title || '', max: 150 },
+        { key: 'url', label: 'URL', value: it.data.url, required: true, max: 2000 },
+        { key: 'desc', label: 'Descripción (opcional)', type: 'textarea', value: it.data.desc || '', max: 600 },
+        { key: 'catId', label: 'Categoría', type: 'select', value: it.data.catId || '', options: catFieldOptions() },
+        { key: 'projId', label: 'Proyecto', type: 'select', value: it.data.projId || '', options: projFieldOptions(it.data.projId || '') },
+      ],
+      onSave: async v => {
+        const url = cleanUrl(v.url); if (!url) { toast('La URL no es válida (debe ser http o https)'); return false; }
+        try { await put('link', { ...it.data, title: v.title.trim(), url, desc: (v.desc || '').trim(), catId: v.catId, projId: v.projId }, it.id); } catch { return false; }
+        renderLinks();
+      },
+      onDelete: async () => { await remove(it.id); renderLinks(); },
+    });
+  }
+});
+
 /* ---------- CONFIGURACIÓN ---------- */
 const cfgItem = () => ofKind('config')[0];
 const cfgMd = () => cfgItem()?.data.md ?? window.CONFIG_SEED ?? '';
@@ -507,7 +760,7 @@ $('#cfg-save').onclick = async () => {
 };
 
 /* ---------- NOTAS ---------- */
-const noteUI = { id: null, mode: 'split', q: '', tag: '' };
+const noteUI = { id: null, mode: 'split', q: '', tag: '', proj: '' };
 const notes = () => ofKind('note');
 const curNote = () => items.find(x => x.id === noteUI.id && x.kind === 'note');
 const noteTitle = n => (n.data.title || '').trim() || 'Sin título';
@@ -603,15 +856,18 @@ function renderNoteList() {
       [...tags].map(([t, n]) => `<button class="chip tag ${noteUI.tag === t ? 'on' : ''}" style="--c:${tagColor(t)}" data-t="${esc(t)}">#${esc(t)} <small>${n}</small></button>`).join('') +
       `<button class="chip" data-manage="1" title="Administrar etiquetas" aria-label="Administrar etiquetas">⚙</button>`
     : '';
+  if (!validProjFilter(noteUI.proj)) noteUI.proj = '';
+  $('#note-proj-filter').innerHTML = projFilterOptions(noteUI.proj);
   const q = norm(noteUI.q);
   const list = sortNotes(notes().filter(n =>
-    (!noteUI.tag || tagsOf(n).includes(noteUI.tag)) &&
+    (!noteUI.tag || tagsOf(n).includes(noteUI.tag)) && projMatch(n, noteUI.proj) &&
     (!q || norm(n.data.title + ' ' + n.data.body + ' ' + tagsOf(n).join(' ')).includes(q))));
   $('#note-list').innerHTML = list.map(n => {
     const tg = tagsOf(n);
     return `<li><button class="note-item ${n.id === noteUI.id ? 'on' : ''}" data-id="${n.id}">
       <span class="n-title">${n.data.pinned ? '📌 ' : ''}${esc(noteTitle(n))}</span>
       <span class="n-snip">${esc((n.data.body || '').replace(/[#*`>\-\n]+/g, ' ').trim().slice(0, 70)) || 'Vacía'}</span>
+      ${n.data.projId ? `<span class="n-tags">${projChip(n.data.projId)}</span>` : ''}
       ${tg.length ? `<span class="n-tags">${tg.slice(0, 3).map(t => tagChip(t)).join('')}${tg.length > 3 ? `<small class="muted">+${tg.length - 3}</small>` : ''}</span>` : ''}
     </button></li>`;
   }).join('') || `<li class="empty small-text">${notes().length ? 'Sin resultados' : 'Aún no hay notas'}</li>`;
@@ -621,6 +877,7 @@ function renderNoteMeta() {
   const pin = $('#note-pin');
   pin.textContent = n.data.pinned ? '📌 Fijada' : '📌 Fijar';
   pin.setAttribute('aria-pressed', String(!!n.data.pinned)); pin.classList.toggle('on', !!n.data.pinned);
+  $('#note-proj').innerHTML = projOptions(n.data.projId || '');
   $('#note-tags').innerHTML = tagsOf(n).map(t =>
     tagChip(t, ` <button type="button" class="chip-x" data-t="${esc(t)}" aria-label="Quitar etiqueta ${esc(t)}">×</button>`)).join('');
   $('#tag-list').innerHTML = [...allTags().keys()].filter(t => !tagsOf(n).includes(t)).map(t => `<option value="${esc(t)}">`).join('');
@@ -725,6 +982,8 @@ async function patchNote(patch) {
   try { await put('note', { ...n.data, ...patch }, n.id); } catch { return; }
   renderNoteList(); renderNoteMeta();
 }
+$('#note-proj').addEventListener('change', e => patchNote({ projId: e.target.value }));
+$('#note-proj-filter').addEventListener('change', e => { saveNote.flush(); noteUI.proj = e.target.value; renderNoteList(); });
 $('#note-pin').addEventListener('click', () => { const n = curNote(); if (n) patchNote({ pinned: !n.data.pinned }); });
 function addTags(raw) {
   const n = curNote(); if (!n) return;
@@ -745,7 +1004,8 @@ $('#note-tags').addEventListener('click', e => {
 async function newNote(extra = {}) {
   saveNote.flush();
   try {
-    const it = await put('note', { title: '', body: '', tags: [], pinned: false, ...extra, updated: new Date().toISOString() });
+    if (!projById(noteUI.proj)) noteUI.proj = '';   // si se filtra por un proyecto, la nota nueva va a ese proyecto
+    const it = await put('note', { title: '', body: '', tags: [], pinned: false, projId: noteUI.proj, ...extra, updated: new Date().toISOString() });
     noteUI.q = ''; noteUI.tag = ''; $('#note-search').value = ''; noteUI.id = it.id; noteUI.mode = 'split';
     renderNoteList(); showNote(); $('#note-title').focus();
   } catch { /* put() ya avisó */ }
@@ -763,11 +1023,11 @@ $('#note-del').addEventListener('click', async () => {
 window.addEventListener('beforeunload', () => saveNote.flush());
 
 /* ---------- navegación ---------- */
-const TABS = { tareas: renderTasks, config: renderConfig, notas: renderNotes };
+const TABS = { tareas: renderTasks, proyectos: renderProjects, links: renderLinks, config: renderConfig, notas: renderNotes };
 function route() {
   let tab = location.hash.replace('#', ''); if (!TABS[tab]) tab = 'tareas';
   saveNote.flush();
-  fillCatSelects();
+  fillCatSelects(); fillProjSelects();
   $$('.view').forEach(v => v.hidden = v.id !== 'view-' + tab);
   $$('.tabs a').forEach(a => { const on = a.dataset.tab === tab; a.classList.toggle('on', on); a.setAttribute('aria-selected', on); });
   TABS[tab]();
